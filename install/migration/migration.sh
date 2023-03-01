@@ -28,7 +28,8 @@ done
 
 echo "Copie des fichiers de configuration…"
 # Copy all config files (installation, GeoNature, modules)
-cp ${previousdir}/config/*.{ini,toml} config/
+cp ${previousdir}/config/*.{ini,toml} ${currentdir}/config/
+cp ${previousdir}/environ ${currentdir}/
 
 if [ -d "${previousdir}/custm" ]; do
     echo "Copie de la customisation…"
@@ -41,35 +42,34 @@ if [ $sk_len -lt 20 ]; then
     sed -i "s|^SECRET_KEY = .*$|SECRET_KEY = '`openssl rand -hex 32`'|" config/geonature_config.toml
 fi
 
-echo "Copie des fichiers existant des composants personnalisables du frontend..."
-# custom/custom.scss have been replaced by assets/custom.css
-if [ ! -f ${previousdir}/frontend/src/assets/custom.css ]
-then
-  cp ${previousdir}/frontend/src/custom/custom.scss frontend/src/assets/custom.css
-else 
-  cp ${previousdir}/frontend/src/assets/custom.css frontend/src/assets/custom.css
+echo "Déplacement des anciens fichiers personnalisés du frontend..."
+# before 2.12
+if [ ! -f "${currentdir}/custom/css/frontend.css" ] && [ -f "${previousdir}/frontend/src/assets/custom.css" ]; then
+  mkdir -p "${currentdir}/custom/css/"
+  cp "${previousdir}/frontend/src/assets/custom.css" "${currentdir}/custom/css/frontend.css"
 fi
-cp ${previousdir}/frontend/src/favicon.ico frontend/src/favicon.ico
-
-# Handle frontend custom components
-cp -r ${previousdir}/frontend/src/custom/* frontend/src/custom/
-
-echo "Récupération des fichiers statiques …"
-cd "${currentdir}/backend/static"
-for static_dir in "${previousdir}"/backend/static/*; do
-    if [ ! -d "${static_dir}" ] || [ "$(basename ${static_dir})" = "node_modules" ]; then
-        continue
-    fi
-    cp -a "${static_dir}" .
-done
-
-if [[ ! -f src/assets/config.json ]]; then
-  echo "Création du fichiers de configuration du frontend"
-  cp -n src/assets/config.sample.json src/assets/config.json
+# before 2.7
+if [ ! -f "${currentdir}/custom/css/frontend.css" ] && [ -f "${previousdir}/frontend/src/custom/custom.scss" ]; then
+  mkdir -p "${currentdir}/custom/css/"
+  cp "${previousdir}/frontend/src/custom/custom.scss" "${currentdir}/custom/css/frontend.css"
+fi
+# before 2.12
+if [ ! -f "${currentdir}/custom/images/favicon.ico" ] && [ -f "${previousdir}/frontend/src/favicon.ico" ] \
+    && cmd -s "${previousdir}/frontend/src/favicon.ico" "${currentdir}/backend/static/images/favicon.ico"; then
+  mkdir -p "${currentdir}/custom/images/"
+  cp "${previousdir}/frontend/src/favicon.ico" "${currentdir}/custom/images/favicon.ico"
 fi
 
-api_end_point=$(geonature get-config API_ENDPOINT)
-sed -i 's|"API_ENDPOINT": .*$|"API_ENDPOINT" : "'${api_end_point}'"|' src/assets/config.json
+echo "Déplacement des anciens fichiers static vers les médias …"
+cd "${previousdir}/backend"
+mkdir -p media
+if [ -d static/medias ]; then mv static/medias media/attachments; fi  # medias becomes attachments
+if [ -d static/pdf ]; then mv static/pdf media/pdf; fi
+if [ -d static/exports ]; then mv static/exports media/exports; fi
+if [ -d static/geopackages ]; then mv static/geopackages media/geopackages; fi
+if [ -d static/shapefiles ]; then mv static/shapefiles media/shapefiles; fi
+if [ -d static/mobile ]; then mv static/mobile media/mobile; fi
+
 
 echo "Mise à jour de node si nécessaire …"
 cd "${currentdir}"/frontend
@@ -85,18 +85,11 @@ echo "Installation des dépendances node du backend …"
 cd ${currentdir}/backend/static
 npm ci --only=prod
 
-cd "${currentdir}"/backend
-echo "Installation du virtual env..."
-if [ -d 'venv' ]; then
-  sudo rm -rf venv
-fi
-python3 -m venv venv
 
+echo "Mise à jour du backend …"
+cd "${currentdir}/install"
+./01_install_backend.sh
 source venv/bin/activate
-pip install --upgrade "pip>=19.3" "wheel" # https://www.python.org/dev/peps/pep-0440/#direct-references
-pip install -e .. -r requirements.txt
-# Installation des dépendances optionnelles
-grep -E "^SENTRY_DSN" "${previousdir}/config/geonature_config.toml" > /dev/null && pip install sentry-sdk[flask]
 
 echo "Installation des modules externes …"
 if [ -d "${previousdir}/external_modules/" ]; then
@@ -135,12 +128,27 @@ cd ${currentdir}/install
 ./02_configure_systemd.sh
 cd ${currentdir}/
 
+# before GeoNature 2.10
 if [ -f "/var/log/geonature.log" ]; then
     echo "Déplacement des fichiers de logs /var/log/geonature.log → /var/log/geonature/geonature.log …"
     sudo mkdir -p /var/log/geonature/
     sudo mv /var/log/geonature.log /var/log/geonature/geonature.log
     sudo chown $USER: -R /var/log/geonature/
 fi
+
+
+if [[ ! -f "${currentdir}/frontend/src/assets/config.json" ]]; then
+  echo "Création du fichiers de configuration du frontend …"
+  cp -n "${currentdir}/src/assets/config.sample.json" "${currentdir}/src/assets/config.json"
+fi
+echo "Mise à jour de la variable API_ENDPOINT dans le fichier de configuration du frontend …"
+api_end_point=$(geonature get-config API_ENDPOINT)
+if [ ! -z "$api_end_point" ]; then
+    # S’il une erreur se produit durant la récupération de la variable depuis GeoNature,
+    # utilisation de la valeur en provenant du fichier settings.ini
+    API_ENDPOINT="$my_url"
+fi
+sed -i 's|"API_ENDPOINT": .*$|"API_ENDPOINT" : "'${api_end_point}'"|' "${currentdir}/frontend/src/assets/config.json"
 
 echo "Mise à jour des fichiers de configuration frontend et rebuild du frontend…"
 geonature update-configuration
@@ -152,6 +160,11 @@ echo "Mise à jour de la base de données…"
 geonature db heads | grep "(occtax)" > /dev/null && geonature db upgrade occtax@4c97453a2d1a
 geonature db autoupgrade || exit 1
 geonature upgrade-modules-db
+
+echo "Mise à jour de la configuration Apache …"
+cd "${currentdir}/install/"
+./06_configure_apache.sh
+sudo apachectl && sudo systemctl reload apache2
 
 echo "Redémarrage des services…"
 for service in ${SERVICES[@]}; do
