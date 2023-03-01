@@ -42,7 +42,7 @@ if [ $sk_len -lt 20 ]; then
     sed -i "s|^SECRET_KEY = .*$|SECRET_KEY = '`openssl rand -hex 32`'|" config/geonature_config.toml
 fi
 
-echo "Déplacement des anciens fichiers personnalisés du frontend..."
+echo "Déplacement des anciens fichiers personnalisés ..."
 # before 2.12
 if [ ! -f "${currentdir}/custom/css/frontend.css" ] && [ -f "${previousdir}/frontend/src/assets/custom.css" ]; then
   mkdir -p "${currentdir}/custom/css/"
@@ -58,6 +58,11 @@ if [ ! -f "${currentdir}/custom/images/favicon.ico" ] && [ -f "${previousdir}/fr
     && cmd -s "${previousdir}/frontend/src/favicon.ico" "${currentdir}/backend/static/images/favicon.ico"; then
   mkdir -p "${currentdir}/custom/images/"
   cp "${previousdir}/frontend/src/favicon.ico" "${currentdir}/custom/images/favicon.ico"
+fi
+# before 2.12
+if [ ! -f "${currentdir}/custom/css/metadata_pdf_custom.css" ] && [ -f "${previousdir}/backend/static/css/custom.css" ]; then
+  mkdir -p "${currentdir}/custom/css/"
+  cp "${previousdir}/backend/static/css/custom.css" "${currentdir}/custom/css/custom.css"
 fi
 
 echo "Déplacement des anciens fichiers static vers les médias …"
