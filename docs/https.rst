@@ -62,6 +62,23 @@ Modifier les éléments suivants :
   API_ENDPOINT = 'https://mondomaine.fr/geonature/api'
   API_TAXHUB = 'https://mondomaine.fr/taxhub/api'
 
-Pour que ces modifications soient prises en compte, exécuter les :ref:`actions à effecture après modification de la configuration <post_config_change>`.
+
+Il est également nécessaire de mettre à jour les 2 fichiers de configuration ``config.json`` situé dans les répertoires ``geonature/frontend/src/assets`` et ``geonature/frontend/dist/assets``:
+
+:: 
+	
+  cd ~/geonature/frontend/src/assets
+  nano config.json
+  cd ~/geonature/frontend/dist/assets
+  nano config.json
+
+
+Modifier l'url d'accès à l'api de GeoNature de la manière suivante : 
+
+:: 
+	
+  {
+    "API_ENDPOINT" : "https://mondomaine.fr/geonature/api"
+  }
 
 Les applications sont désormais accessibles sur votre domaine sécurisé en HTTPS !
